@@ -14,7 +14,10 @@ function [K] = gains_SS(t_r,zeta,p_i,A,B,C_r)
         B = [B;0];
     end
     
-    C_A = ctrb(A,B);
+    C_A = zeros(size(A));
+    for n = 1:length(A)
+        C_A(:,n) = A^(n-1)*B;
+    end
     
     if rank(C_A) ~= length(A)
         error('System not controlable!')

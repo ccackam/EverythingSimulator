@@ -4,15 +4,13 @@ classdef dynamics < handle
         x
         u
         param
-        core
-        settings
         theoretical_param
         time
         step
         stop
         eqs_motion
-        controllers
-        observers
+        control_architecture
+        controller
         D_in_param
         D_in_u
         D_out
@@ -22,66 +20,54 @@ classdef dynamics < handle
         uncertian_x
         uncertian_N
         implement_uncertainty
-        u_names
-        x_names
     end
     
     methods
-        function self = dynamics(core)
-            % General Parameters for passing information
-            param = core.param;
-            settings = core.settings;
-            functions = core.functions;
-            self.core = core;
-            self.param = param;
-            self.settings = settings;
-            
+        function self = dynamics(param,sim)
             % Initialize State
-            self.x = core.subscribe('x');
-            self.u = core.subscribe('u');
-            self.x_names = core.param.x_names;
-            self.u_names = core.param.u_names;
+            self.x = param.x_0;
+            self.u = param.u_0;
             
             % Functions
-            self.eqs_motion = functions.eqs_motion;
-            self.controllers = functions.controllers;
-            self.observers = functions.observers;
+            self.eqs_motion = param.eqs_motion;
+            self.control_architecture = param.control_architecture;
+            self.controller = param.controller;
             
             % Simulation Parameters
-            self.time = settings.start;
-            self.step = settings.step;
-            self.stop = settings.end;
+            self.time = sim.start;
+            self.step = sim.step;
+            self.stop = sim.end;
             
             % Uncertianty
             self.theoretical_param = param;
+            self.uncertian_param = param.uncertian_param;
             self.uncertian_u = param.uncertian_u;
             self.uncertian_x = param.uncertian_x;
             self.uncertian_N = param.uncertain_N;
+            self.D_in_param = param.D_in_param;
             self.D_in_u = param.D_in_u;
             self.D_out = param.D_out;
             self.N = param.N;
-            self.implement_uncertainty = settings.implement_uncertainty;
+            self.implement_uncertainty = param.implement_uncertainty;
             if self.implement_uncertainty
                 % set biases in parameters
-                param.D_in_param.bias = param.D_in_param.bias.*(rand(1,length(param.D_in_param.bias)).*2-1);
+                self.D_in_param.bias = self.D_in_param.bias.*(rand(1,length(self.D_in_param.bias)).*2-1);
                 self.D_in_u.bias = self.D_in_u.bias.*(rand(1,length(self.D_in_u.bias)).*2-1);
                 self.D_out.bias = self.D_out.bias.*(rand(1,length(self.D_out.bias)).*2-1);
                 self.N.bias = self.N.bias.*(rand(1,length(self.N.bias)).*2-1);
 
                 % set parameters randomness
-                self.param = self.uncertainty(self.theoretical_param,param.D_in_param,param.uncertian_param);
+                self.param = self.uncertainty(self.theoretical_param,self.D_in_param,param.uncertian_param);
             else
                 self.param = param;
             end
             
         end
         
-        function new_state = propagate(self)
-            
-            % Impliment uncertainty
-            if self.implement_uncertainty
-                self.u = self.uncertainty(self.u,self.D_in_u,self.uncertian_u);
-            end
+        function results = propagate(self)
+
+            % Update Time
+            self.time = self.time + self.step;
             
             % Runga Kuta
             k1 = self.eqs_motion(self.time,self.x,self.u,self.param);
@@ -90,52 +76,54 @@ classdef dynamics < handle
             k4 = self.eqs_motion(self.time,self.x + self.step*k3, self.u,self.param);
             new_state = self.x + self.step/6 * (k1 + 2*k2 + 2*k3 + k4);
 
+%             % This is to impliment ode45 this is very slow, but a
+%             % possible feature for futher development. 
+%             ODE45
+%             [t_out,new_state] = ode45(@(t,x) self.eqs_motion(t,x,self.u,self.param),t_span,self.x);
+%             
+%             
+%             Impliment uncertainty
+%             if self.implement_uncertainty
+%                 results = self.uncertainty(new_state(end,:).',self.D_out,self.uncertian_x);
+%             else
+%                 results = new_state(end,:).';
+%             end
+
             % Impliment uncertainty
             if self.implement_uncertainty
-                new_state = self.uncertainty(new_state,self.D_out,self.uncertian_x);
+                results = self.uncertainty(new_state,self.D_out,self.uncertian_x);
+            else
+                results = new_state;
             end
                 
-            % Pack results
-            self.x = new_state;
+            % Unpack results
+            self.x = results;
         end
         
-        function simulate(self)
+        function [x_history,u_history] = simulate(self,r)
             
-            r = self.core.subscribe_history('r');
-            t = self.core.subscribe_history('t');
+            % Initialize
+            x_history = zeros(length(self.x),floor(self.stop./self.step));
+            u_history = zeros(length(self.u),length(x_history));
             
             % Iterate through each timestep
-            for i = 1:length(r)-1
-                
-                self.x = self.propagate();
+            for i = 1:length(x_history)
                 
                 % Impliment uncertianty
                 if self.implement_uncertainty
-                    sensor_readings = self.uncertainty(self.x,self.N,self.uncertian_N);
+                    measurements = self.uncertainty(self.x,self.N,self.uncertian_N);
                 else
-                    sensor_readings = self.x;
-                end
-                
-                % Measure
-                measurements = zeros(size(sensor_readings));
-                d_hat = zeros(size(self.observers));
-                for j = 1:length(self.observers)
-                    indexes = self.get_indexes(self.x_names,self.observers(j).output_names);
-                    [measurements(indexes),d_hat(j)] = self.observers(j).observe(sensor_readings);
+                    measurements = self.x;
                 end
                     
                 % Implimennt controller
-                for j = 1:length(self.controllers)
-                    indexes = self.get_indexes(self.u_names,self.controllers(j).output_names);
-                    self.u(indexes) = self.controllers(j).control(measurements,r(:,i),d_hat(j));
-                end
-                    
+                self.u = self.control_architecture(self.controller,measurements,r(:,i),self.theoretical_param);
+                
                 % Save history
-                self.core.publish('u',self.u);
-                self.core.publish('x_hat',measurements)
+                u_history(:,i) = self.u;
                 
                 % Simulate Responce to new input
-                self.core.publish('x',self.x);
+                x_history(:,i) = self.propagate();
             end
         end
         
@@ -159,7 +147,7 @@ classdef dynamics < handle
 %                     eval(['disp(output.',variable,')'])
                 end
                 
-             else % if we're adjusting any other number
+            else % if we're adjusting any other number
                 
                 output = zeros(size(input));
                 for i = 1:length(input)
@@ -171,13 +159,6 @@ classdef dynamics < handle
                     end
                 end
                 
-            end
-        end
-        
-        function indexes = get_indexes(self,options,names)
-            indexes = false(size(options));
-            for i = 1:length(names)
-                indexes = indexes | strcmp(options,names(i));
             end
         end
     end

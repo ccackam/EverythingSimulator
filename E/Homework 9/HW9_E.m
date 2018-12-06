@@ -39,7 +39,7 @@ sim.names = [   "z - Position Along Beam (m)",...
                 "F - Force (N)"];     % Names of data to display.
             
 % General Variable to implement uncertainty
-param.implement_uncertainty = false;
+param.implement_uncertainty = true;
 
 % Display warnings?
 warning('on','all')
@@ -89,13 +89,14 @@ if strcmp(param.controller_type,controllers.PID)
 
 elseif strcmp(param.controller_type,controllers.SS)
     % combined
-    t_r_z = 0.14;
-    t_r_theta = t_r_z.*8;
+    t_r_theta = 0.14;
+    t_r_z = t_r_theta.*8;
     t_r = [t_r_z,t_r_theta];
-    zeta_z = 0.707;
     zeta_theta = 0.707;
+    zeta_z = 0.707;
     zeta = [zeta_z,zeta_theta];
-    [param.K.K,param.K.k_r] = gains_SS(t_r,zeta,param.A,param.B,param.C_r);
+    p_i = -5;
+    param.K = gains_SS(t_r,zeta,p_i,param.A,param.B,param.C_r);
     param.index = [1,1,1,1];
     param.impose_sat = false;
     param.add_equilibrium = true;
@@ -103,6 +104,7 @@ elseif strcmp(param.controller_type,controllers.SS)
     param.derivative_source = 'position'; % 'measure', 'error', 'position'
     param.anti_windup = 'both'; % 'derivative', 'saturation', 'both', 'none'
     param.windup_limit = 0.01;
+    param.command_0 = param.r_0(1);
     param.controller(1) = controllers(param,sim);
 end
 

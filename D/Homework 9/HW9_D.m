@@ -32,7 +32,7 @@ sim.realistic   = true;      % Stop the simulation if
 sim.names       = ["z - Position (m)","F - Force (N)"];   % Names of data to display.
 
 % General Variable to implement uncertainty
-param.implement_uncertainty = false;
+param.implement_uncertainty = true;
 
 % Display warnings?
 warning('on','all')
@@ -59,7 +59,8 @@ elseif strcmp(param.controller_type,controllers.SS)
     % Z Position
     t_r = 2.0;
     zeta = 0.707;
-    [param.K.K,param.K.k_r] = gains_SS(t_r,zeta,param.A,param.B,param.C_r);
+    p_i = -5;
+    param.K = gains_SS(t_r,zeta,p_i,param.A,param.B,param.C_r);
     param.index = [1,1];
     param.impose_sat = false;
     param.add_equilibrium = true;
@@ -67,6 +68,7 @@ elseif strcmp(param.controller_type,controllers.SS)
     param.derivative_source = 'measure'; % 'measure', 'error', 'position'
     param.anti_windup = 'both'; % 'derivative', 'saturation', 'both', 'none'
     param.windup_limit = 0.01;
+    param.command_0 = param.r_0(1);
     param.controller(param.index) = controllers(param,sim);
 end
 

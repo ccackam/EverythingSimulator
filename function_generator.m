@@ -1,24 +1,14 @@
-function [points,time] = function_generator(sim)
-%function_generator can output sin, square, and sawtooth
-time = [sim.start:sim.step:sim.end].';
-
-switch sim.input
+function points = function_generator(input,period,amplitude,offset,phase_delay,t)
+switch input
     case 'sine'
-        points = sim.amplitude.*sin(time.*(2.*pi)./sim.period + 2.*pi.*sim.phase_delay) + sim.offset;
+        points = amplitude.*sin(t.*(2.*pi)./period + 2.*pi.*phase_delay) + offset;
     case 'saw'
-        points = sim.amplitude.*sawtooth(time.*(2.*pi)./sim.period  + 2.*pi.*sim.phase_delay) + sim.offset;
+        points = amplitude.*sawtooth(t.*(2.*pi)./period  + 2.*pi.*phase_delay) + offset;
     case 'square'
-        points = sim.amplitude.*square(time.*(2.*pi)./sim.period  + 2.*pi.*sim.phase_delay) + sim.offset;
+        points = amplitude.*square(t.*(2.*pi)./period  + 2.*pi.*phase_delay) + offset;
     otherwise
-        points = zeros(length(time),1)+sim.offset;
+        points = zeros(length(t),1)+offset;
         
 end
-
-% Plot for visulization
-% figure(3), clf;
-% hold on
-% plot(time,points);
-% hold off
-
 end
 

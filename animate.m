@@ -1,77 +1,74 @@
 classdef animate < handle
-    %The animate class contains methods and values partaining to the
-    %display. Values stored in objects of this type include:
-    % 
-    %         side
-    %         points
-    %         height
-    %         width
-    %         animation_handle
-    %         figure_handle
-    %         publish
-    %         real_time
-    %         step
-    %         names
-    %         plots
-    %         initial
-    %         start
-    %
-    % methods include
-    % 
-    %         self = animate(param,sim)
-    %         redraw(self,position)
-    %         add_data(self,names,data,time)
-    %         play(self,position,time)
     
     properties
-        param
         get_drawing
-        points
-        color
         window
         animation_handle
         figure_handle
-        publish
+        display_time
         real_time
-        step
-        names
-        x_plots
-        u_plots
-        r_plots
-        x_0
-        u_0
-        r_0
+        plot_names
+        plot_handles
+        x_names
+        x_hat_names
+        u_names
+        r_names
+        e_names
         start
-        hard_stop
-        sim
+        step
         animation
         animation_figure
         plot_figure
+        observer
+        core
+        param
+        settings
+        t
     end
     
     methods
-        function self = animate(param,sim)
-            %The animate method constructs an instance of this class. It
-            %stores the needed information in object variables and creats
-            %a chart to plot the animation. This constructor needs the
-            %param and sim objects passed to it.
+        function self = animate(core)
+            
+            settings = core.settings;
+            functions = core.functions;
+            param = core.param;
             
             % Unpack data
-            self.window = sim.window;
-            self.publish = sim.publish;
-            self.real_time = sim.real_time;
-            self.start = sim.start;
-            self.step = sim.step;
-            self.names  = sim.names;
-            self.x_0 = param.x_0;
-            self.u_0 = param.u_0;
-            self.r_0 = param.r_0;
-            self.get_drawing = param.get_drawing;
-            self.param = param;
-            self.sim = sim;
-            self.hard_stop = param.hard_stop;
-            self.animation = sim.animation;
+            % Display Window Info
+            self.window = settings.window;
+            self.display_time = settings.publish;
+            % Playback Info
+            self.real_time = settings.real_time;
+            self.start = settings.start;
+            self.step = settings.step;
+            self.plot_names  = settings.plot_names;
+            self.animation = settings.animation;
+            self.observer = any(strcmp(settings.plot_names,"e - Observer Error"));
+            % Handle to the function that draws the simulation
+            self.get_drawing = functions.get_drawing;
+            % General Parameters for passing information
+            self.core = core;
+            self.param = core.param;
+            self.settings = core.settings;
+            % Names
+            self.x_names = param.x_names;
+            self.u_names = param.u_names;
+            self.r_names = param.x_names(param.C_r*(1:length(self.x_names)).') + "_{r}";
+            self.x_hat_names = param.x_names + "_{hat}";
+            self.e_names = "e_{" + param.x_names + "}";
             
+            % Publishers & Subscribers
+            x = core.subscribe_specific('x',1);
+            x_hat = core.subscribe_specific('x_hat',1);
+            u = core.subscribe_specific('u',1);
+            r = core.subscribe_specific('r',1);
+            t = core.subscribe_specific('t',1);
+            e = x-x_hat;
+            core.param.r_names = self.r_names;
+            core.param.x_hat_names = self.x_hat_names;
+            core.param.e_names = self.e_names;
+            
+            % Assign figure numbers
             if self.animation
                 self.animation_figure = 1;
                 self.plot_figure = 2;
@@ -79,116 +76,116 @@ classdef animate < handle
                 self.plot_figure = 1;
             end
             
-            % Create a figure to animate the output of the system
+            % Animation Figure
             if self.animation
                 
                 % Get points
-                drawing = self.get_drawing(param.x_0,self.param);
-
-                % Extract Data
-                self.points = drawing{1};
-                self.color = drawing{2};
+                [points,colors] = self.get_drawing(x,self.settings,self.param);
                 
+                % Plot
                 figure(self.animation_figure); 
                 clf
                 hold on
-                for i = 1:length(self.color)
-                    self.animation_handle(i) = fill(self.points{i}(:,1),...
-                                                 self.points{i}(:,2),...
-                                                 self.color{i});
+                for i = 1:length(colors)
+                    self.animation_handle(i) = fill(points{i}(:,1),points{i}(:,2),colors{i});
                 end
                 axis equal
                 axis(self.window)
                 hold off
             end
             
-            % Create a figure to display the needed data for the system.
+            % Plot Data Figure
+            number_of_plots = length(self.plot_names);
             figure(self.plot_figure), clf
-            for i = 1:(length(self.names) - length(self.u_0))
-                subplot(length(self.names),1,i,'FontSize', 10)
+            for i = 1:number_of_plots
+                subplot(number_of_plots,1,i,'FontSize', 10)
                 hold on
-                self.x_plots(i) = plot(sim.start,self.x_0(i),'linewidth',1.5);
-                self.r_plots(i) = plot(sim.start,self.r_0(i),'linewidth',1.5);
+                for j = 2:length(self.plot_names{i})
+                    [index,type] = self.get_indexes(self.plot_names{i}(j));
+                    switch type
+                        case "x"
+                            data = x(index,:);
+                        case "x_hat"
+                            data = x_hat(index,:);
+                        case "u"
+                            data = u(index,:);
+                        case "r"
+                            data = r(index,:);
+                        case "e"
+                            data = e(index,:);
+                    end
+                            
+                    self.plot_handles{i}(j) = plot(t,data,'linewidth',1.5);
+                end
                 grid on
                 xlabel('t - Time (s)')
-                ylabel(self.names(i))
-                legend("Actual","Commanded")
-                hold off
-            end
-            for j = 1:length(self.u_0)
-                subplot(length(self.names),1,j+i,'FontSize', 10)
-                hold on
-                self.u_plots(j) = plot(sim.start,self.u_0(j),'linewidth',1.5);
-                grid on
-                xlabel('t - Time (s)')
-                ylabel(self.names(i+j))
+                ylabel(self.plot_names{i}(1))
+                legend(self.plot_names{i}(2:end))
                 hold off
             end
             
+            % Reactivate the animation figure
             figure(1)
         end
         
         function redraw(self,x)
-            %redraw places the box in a new location. This method needs the
-            %new z location passed to it.
             
-            % Format incoming data.
-            drawing = self.get_drawing(x,self.param);
-            
-            % Extract Data
-            self.points = drawing{1};
-            self.color = drawing{2};           
+            % Place the points of the drawing in the new location
+            [points,colors] = self.get_drawing(x,self.settings,self.param);          
             
             % Update the chart data.
-            for i = 1:length(self.color)
+            for i = 1:length(colors)
                 set(self.animation_handle(i),...
-                    'X',self.points{i}(:,1),...
-                    'Y',self.points{i}(:,2))
+                    'X',points{i}(:,1),...
+                    'Y',points{i}(:,2))
             end
             
             % Redraw
             drawnow
         end
         
-        function add_data(self,x,u,r,t)
-            %add_data adds a set of data points to the chart. To opporate a
-            %the names of the values to be updated, the data itself, and 
-            %the time of the data all need to be passed to the method
+        function add_data(self,x,x_hat,e,u,r,t)
             
-            % Get the time vector and append the new time.
-            t = [get(self.x_plots(1),'XData'),t];
-            
-            % For each variable to be updated
-            for i = 1:(length(self.names) - length(self.u_0))
-                % Get the old data and append the new data
-                data_to_disp = [get(self.x_plots(i),'YData'),x(i,:)];
-                % Update the chart data
-                set(self.x_plots(i),'XData',t,'YData',data_to_disp);
-                % Get the old data and append the new data
-                data_to_disp = [get(self.r_plots(i),'YData'),r(i,:)];
-                % Update the chart data
-                set(self.r_plots(i),'XData',t,'YData',data_to_disp);
-            end
-            
-           for i = 1:length(u(:,1))
-                % Get the old data and append the new data
-                data_to_disp = [get(self.u_plots(i),'YData'),u(i,:)];
-                % Update the chart data
-                set(self.u_plots(i),'XData',t,'YData',data_to_disp);
+            % Plot Data Figure
+            for i = 1:length(self.plot_names)
+                for j = 2:length(self.plot_names{i})
+                    [index,type] = self.get_indexes(self.plot_names{i}(j));
+                    switch type
+                        case "x"
+                            data = x(index,:);
+                        case "x_hat"
+                            data = x_hat(index,:);
+                        case "u"
+                            data = u(index,:);
+                        case "r"
+                            data = r(index,:);
+                        case "e"
+                            data = e(index,:);
+                    end
+                            
+                    set(self.plot_handles{i}(j),'XData',t,'YData',data);
+                end
             end
             
             % Redraw
             drawnow
         end
         
-        function play(self,x,u,r,t)
-            %play the play method takes the position vector and time vector
-            %and iterates through them dispalying them one at a time.
+        function play(self)
+            
+            x = self.core.subscribe_history('x');
+            x_hat = self.core.subscribe_history('x_hat');
+            u = self.core.subscribe_history('u');
+            r = self.core.subscribe_history('r');
+            t = self.core.subscribe_history('t');
+            e = x - x_hat;
             
             if self.animation
+                
                 % Start timers for accurate timing
-                printwatch = tic;
-                stopwatch = tic;
+                printwatch = tic; % Timer that helps skip unessisary images
+                stopwatch = tic; % Timer that iterates through each image
+                j = 0;
 
                 % Iterate through each position
                 for i = 1:length(x)
@@ -200,34 +197,46 @@ classdef animate < handle
 
                     % If the second timer indicates that it is also time to
                     % display a new image.
-                    if (toc(printwatch) > self.publish) || (~self.real_time && ~mod(i,(self.publish./self.step)))
+                    if ((toc(printwatch) > self.display_time) && self.real_time) || (~self.real_time && (t(i)>j*self.display_time))
+                        
+                        j = j + 1;
 
                         % Reset the timer
                         printwatch = tic;
 
-                        % Update teh dispaly
+                        % Update the dispaly
                         self.redraw(x(:,i));
-                        self.add_data(x(:,i),u(:,i),r(:,i),t(i))
-
-                        if any(self.hard_stop.high < ...
-                                x(1:length(self.hard_stop.high),i)) && ...
-                                self.sim.realistic
-                            error('HARD STOP: High system limits exceded')
-                        elseif any(self.hard_stop.low > ...
-                                x(1:length(self.hard_stop.low),i)) && ...
-                                self.sim.realistic
-                            error('HARD STOP: Low system limits exceded')
-                        end
+                        self.add_data(x(:,1:i),x_hat(:,1:i),e(:,1:i),u(:,1:i),r(:,1:i),t(:,1:i))
                     end
                 end
+                
                 % For information's sake, display the time of the output
                 toc(stopwatch)
+                
             else
-                % Update teh dispaly
-                if self.animation
-                    self.redraw(x);
-                end
-                self.add_data(x,u,r,t(2:end))
+                % Update the plots only
+                self.add_data(x,x_hat,u,r,t)
+            end
+        end
+        
+        function [index,type] = get_indexes(self,name)
+            if any(strcmp(self.x_names,name))
+                index = strcmp(self.x_names,name);
+                type = 'x';
+            elseif any(strcmp(self.x_hat_names,name))
+                index = strcmp(self.x_hat_names,name);
+                type = 'x_hat';
+            elseif any(strcmp(self.u_names,name))
+                index = strcmp(self.u_names,name);
+                type = 'u';
+            elseif any(strcmp(self.r_names,name))
+                index = strcmp(self.r_names,name);
+                type = 'r';
+            elseif any(strcmp(self.e_names,name))
+                index = strcmp(self.e_names,name);
+                type = 'e';
+            else
+                error("ERROR: Your trying to plot '" + name + "' which is not a plotable value.")
             end
         end
     end

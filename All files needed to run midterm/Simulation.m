@@ -1,17 +1,20 @@
 %% Header
 % This is the master function which handles the simulation
 
-%% Create Objects
+% For Formating
+r = r.';
+t = t.';
 
+%% Create Objects
 % Object for display of results
-animation = animate(core);  
+animation = animate(param,sim);  
 
 % Object simulating the system
-system = dynamics(core);
+system = dynamics(param,sim);
    
 %% Simulate the system
-system.simulate(); 
+[x,u] = system.simulate(r); 
 
 %% Display results                                            
-animation.play();
+animation.play(x,u,r,t)
                                             
